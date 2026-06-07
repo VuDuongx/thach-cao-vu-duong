@@ -1,126 +1,350 @@
 from pathlib import Path
-from PIL import Image
-import base64, io, html, os, zipfile
+from PIL import Image, ImageOps
+import base64, io, zipfile, os, textwrap
 
-data_dir = Path("/mnt/data")
-image_files = sorted(data_dir.glob("176676534*.jpg"))
+data = Path("/mnt/data")
 
-# Compress images and embed as base64 so user only needs one index.html
-embedded = []
-for i, p in enumerate(image_files, start=1):
-    img = Image.open(p).convert("RGB")
-    # resize max side for web
-    max_side = 1300
-    w, h = img.size
-    scale = min(1, max_side / max(w, h))
+# Selected images based on the full set the user uploaded:
+# - luxury completed projects
+luxury = [
+"1721270717544_2294173793083894712_2066880940380901825_6a6f839dbaad3b8411c996888097a776.jpg",
+"1721270717208_2294173793083894712_2066880940380901825_0c32faf6a7b55c67e768e7f723ac36f1.jpg",
+"1721270717003_2294173793083894712_2066880940380901825_16bad64193dc8a31a3a5d2ff0cd8171e.jpg",
+"1721270716938_2294173793083894712_2066880940380901825_dd90cd6f58dabaf566a1e63aa25de599.jpg",
+"1721270717071_2294173793083894712_2066880940380901825_aae502c60cfe8ff67afcb924315c96db.jpg",
+"1721270717141_2294173793083894712_2066880940380901825_e74d3ab625ac1f476ea68fcb835c435b.jpg",
+"1721270717278_2294173793083894712_2066880940380901825_3ffebcd8b7ffd143d4342d30d693611d.jpg",
+"1721270717344_2294173793083894712_2066880940380901825_9dbdb08aada7b1a3e8eaa5e70d917f96.jpg",
+"1721270717412_2294173793083894712_2066880940380901825_7e22cac8d33cc158dd7dd45971723dcf.jpg",
+"1721270717479_2294173793083894712_2066880940380901825_9382cb197625a17a10d7a5100ea7f39a.jpg",
+]
+
+# - real work / wall moulding construction without competitor watermarks
+sitework = [
+"1766765342334_2294173793083894712_2066880940380901825_f8899c3660c543b90fe36c3801e61b24.jpg",
+"1766765342353_2294173793083894712_2066880940380901825_287c509fe6b7c736e3b19b7e21d0f6cb.jpg",
+"1766765342368_2294173793083894712_2066880940380901825_a909551e95502d67bfeda47d06b9b6ec.jpg",
+"1766765342381_2294173793083894712_2066880940380901825_3db7358962bd6d886ec593c84388dbca.jpg",
+"1766765342392_2294173793083894712_2066880940380901825_347419011018d0462c80a83d6f3e5850.jpg",
+"1766765342402_2294173793083894712_2066880940380901825_7bed097b5b58871608288519e18c7170.jpg",
+"1766765342411_2294173793083894712_2066880940380901825_ed9a532dbee0e9e9c24168fa75066f50.jpg",
+"1766765342420_2294173793083894712_2066880940380901825_1ea8b4068d2e5ec0089ef7f4e0ec3ba6.jpg",
+"1766765342305_2294173793083894712_2066880940380901825_e14be05e94d9a6f76c18d942a93cbccc.jpg",
+]
+
+# - medallion samples; crop central area to reduce visible vendor labels
+samples = [
+"1768526906700_2294173793083894712_2066880940380901825_a6414b18d84c0862f885b2c9e481d7c3.jpg",
+"1768526906707_2294173793083894712_2066880940380901825_4f1e25c146f7158f499daf3b1d62c070.jpg",
+"1768526906710_2294173793083894712_2066880940380901825_b7d42b3ec722f94cd2094d70ae51d3ab.jpg",
+"1768526906713_2294173793083894712_2066880940380901825_1a9f7c8ad7c7e758d3c10c0d6bc6c802.jpg",
+"1768526906715_2294173793083894712_2066880940380901825_2f652fb7e88649a2e13d7690befa8ce2.jpg",
+]
+
+def image_to_data_uri(path, max_side=1100, quality=68, crop_square=False, hero=False):
+    img = Image.open(path).convert("RGB")
+    img = ImageOps.exif_transpose(img)
+    if crop_square:
+        w,h = img.size
+        # crop central square, slightly lower to avoid top labels
+        side = min(w,h)
+        left = max(0, (w-side)//2)
+        top = max(0, (h-side)//2 + int(side*0.04))
+        if top + side > h: top = h-side
+        img = img.crop((left, top, left+side, top+side))
+    if hero:
+        # create a wide hero crop for better banner composition
+        w,h = img.size
+        target_ratio = 16/9
+        if w/h > target_ratio:
+            new_w = int(h*target_ratio)
+            left = (w-new_w)//2
+            img = img.crop((left,0,left+new_w,h))
+        else:
+            new_h = int(w/target_ratio)
+            top = max(0, (h-new_h)//3)
+            img = img.crop((0,top,w,top+new_h))
+    w,h = img.size
+    scale = min(1, max_side / max(w,h))
     if scale < 1:
         img = img.resize((int(w*scale), int(h*scale)), Image.LANCZOS)
     buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=78, optimize=True)
-    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-    embedded.append((f"data:image/jpeg;base64,{b64}", f"Công trình thạch cao Vũ Dương {i}"))
+    img.save(buf, format="JPEG", quality=quality, optimize=True, progressive=True)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
-cards = "\n".join(
-    f'<article class="photo-card"><img src="{src}" alt="{alt}" loading="lazy"><span>{alt}</span></article>'
-    for src, alt in embedded
-)
+hero_img = image_to_data_uri(data / luxury[0], max_side=1500, quality=70, hero=True)
+about_img = image_to_data_uri(data / sitework[0], max_side=900, quality=68)
 
-hero_src = embedded[-1][0] if embedded else ""
+luxury_cards = []
+luxury_labels = [
+    "Phòng ngủ tân cổ điển hoàn thiện",
+    "Trần phào chỉ dát vàng cao cấp",
+    "Trần biệt thự phong cách châu Âu",
+    "Tường pano và phào chỉ hoàn thiện",
+    "Phòng ngủ Neo Classic sang trọng",
+    "Trần hoa văn & đèn chùm",
+    "Không gian phòng ngủ cao cấp",
+    "Phào chỉ tường hoàn thiện",
+    "Trần trang trí khu vực sinh hoạt",
+    "Hệ trần và tường đồng bộ",
+]
+for f,l in zip(luxury, luxury_labels):
+    luxury_cards.append((image_to_data_uri(data/f, max_side=950, quality=66), l))
 
-html_content = f"""<!DOCTYPE html>
+work_labels = [
+    "Thi công chỉ tường cầu thang",
+    "Đội thợ xử lý pano tường",
+    "Khung chỉ tường phòng khách",
+    "Pano tường đang hoàn thiện",
+    "Cầu thang và mảng tường trang trí",
+    "Thi công thực tế tại công trình",
+    "Hoàn thiện chỉ tường phòng lớn",
+    "Đội thi công tại công trình",
+    "Lam sóng trang trí hiện đại",
+]
+work_cards = []
+for f,l in zip(sitework, work_labels):
+    work_cards.append((image_to_data_uri(data/f, max_side=950, quality=66), l))
+
+sample_labels = [
+    "Mẫu hoa thị 90cm",
+    "Mẫu hoa thị cánh dài 80cm",
+    "Mẫu hoa thị cổ điển 80cm",
+    "Mẫu hoa thị hoa lá",
+    "Mẫu hoa thị B24",
+]
+sample_cards = []
+for f,l in zip(samples, sample_labels):
+    sample_cards.append((image_to_data_uri(data/f, max_side=700, quality=66, crop_square=True), l))
+
+def card_html(cards, cls="photo"):
+    return "\n".join([f'''
+        <article class="{cls}">
+          <img src="{src}" alt="{label}" loading="lazy">
+          <div class="cap">{label}</div>
+        </article>''' for src,label in cards])
+
+html = f"""<!DOCTYPE html>
 <html lang="vi">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Thạch Cao Vũ Dương | Thi công thạch cao Miền Nam</title>
-  <meta name="description" content="Thạch Cao Vũ Dương chuyên thi công trần thạch cao, vách ngăn, phào chỉ, lam sóng, trang trí nội thất khu vực Miền Nam." />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Thạch Cao Vũ Dương | Thi công phào chỉ, trần thạch cao Miền Nam</title>
+  <meta name="description" content="Thạch Cao Vũ Dương chuyên thi công phào chỉ, trần thạch cao, vách ngăn, lam sóng, hoa thị trần và trang trí nội thất khu vực Miền Nam.">
   <style>
-    *{{box-sizing:border-box}} html{{scroll-behavior:smooth}} body{{margin:0;font-family:Arial,Helvetica,sans-serif;color:#222;background:#faf8f3;line-height:1.6}}
-    a{{text-decoration:none;color:inherit}} img{{max-width:100%;display:block}}
-    .top{{position:sticky;top:0;z-index:10;background:rgba(22,20,18,.94);backdrop-filter:blur(8px);box-shadow:0 4px 20px rgba(0,0,0,.18)}}
-    .nav{{max-width:1180px;margin:auto;padding:15px 20px;display:flex;align-items:center;justify-content:space-between;gap:18px}}
-    .brand{{font-weight:900;color:#fff;letter-spacing:1px;font-size:20px}} .links{{display:flex;gap:18px;color:#fff;font-size:14px}} .links a{{opacity:.9}} .links a:hover{{color:#d9a441}}
-    .hero{{min-height:82vh;background:linear-gradient(90deg,rgba(0,0,0,.76),rgba(0,0,0,.35)),url('{hero_src}') center/cover no-repeat;display:flex;align-items:center}}
-    .hero-inner{{max-width:1180px;margin:auto;padding:80px 20px;color:#fff;width:100%}} .badge{{display:inline-block;background:#d9a441;color:#1d1710;border-radius:999px;padding:8px 14px;font-weight:700;margin-bottom:18px}}
-    h1{{font-size:clamp(38px,6vw,76px);line-height:1.05;margin:0 0 18px;text-transform:uppercase;letter-spacing:1px}} .hero p{{font-size:clamp(17px,2vw,23px);max-width:760px;color:#f1eadf;margin-bottom:28px}}
-    .btns{{display:flex;flex-wrap:wrap;gap:12px}} .btn{{display:inline-flex;align-items:center;gap:8px;border-radius:12px;padding:14px 20px;font-weight:800;box-shadow:0 8px 22px rgba(0,0,0,.18)}}
-    .gold{{background:#d9a441;color:#17120d}} .dark{{background:#fff;color:#17120d}} .section{{max-width:1180px;margin:auto;padding:72px 20px}}
-    .title{{text-align:center;margin-bottom:36px}} .title span{{color:#d9a441;font-weight:800;text-transform:uppercase;letter-spacing:1px}} h2{{font-size:clamp(28px,4vw,44px);margin:8px 0 12px;line-height:1.15}} .title p{{max-width:720px;margin:auto;color:#666}}
-    .about{{display:grid;grid-template-columns:1fr 1.1fr;gap:30px;align-items:center}} .about-img{{border-radius:24px;overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,.18)}} .about-text{{background:#fff;padding:34px;border-radius:24px;box-shadow:0 12px 35px rgba(0,0,0,.07)}}
-    .stats{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:24px}} .stat{{background:#17120d;color:#fff;border-radius:16px;padding:18px;text-align:center}} .stat b{{display:block;font-size:25px;color:#d9a441}}
-    .grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}} .card{{background:#fff;border-radius:20px;padding:24px;box-shadow:0 10px 30px rgba(0,0,0,.07);border:1px solid #eee}} .card h3{{margin:0 0 8px;font-size:19px}} .card p{{margin:0;color:#666}}
-    .gallery{{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}} .photo-card{{position:relative;overflow:hidden;border-radius:22px;background:#ddd;box-shadow:0 14px 35px rgba(0,0,0,.12);min-height:260px}} .photo-card img{{width:100%;height:100%;object-fit:cover;aspect-ratio:4/3;transition:.35s}} .photo-card:hover img{{transform:scale(1.05)}} .photo-card span{{position:absolute;left:14px;bottom:14px;background:rgba(0,0,0,.62);color:#fff;padding:8px 12px;border-radius:999px;font-size:13px}}
-    .cta{{background:#17120d;color:#fff;border-radius:28px;padding:44px;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.22)}} .cta h2{{color:#fff}} .cta p{{color:#e8dfd0}}
-    footer{{background:#111;color:#ccc;text-align:center;padding:28px 20px;margin-top:40px}}
-    .float{{position:fixed;right:18px;bottom:18px;z-index:20;display:flex;flex-direction:column;gap:10px}} .float a{{background:#d9a441;color:#17120d;font-weight:900;border-radius:999px;padding:13px 16px;box-shadow:0 8px 20px rgba(0,0,0,.24)}}
-    @media(max-width:900px){{.links{{display:none}}.hero{{min-height:72vh}}.about{{grid-template-columns:1fr}}.grid{{grid-template-columns:1fr 1fr}}.gallery{{grid-template-columns:1fr 1fr}}}}
-    @media(max-width:560px){{.brand{{font-size:16px}}.hero-inner{{padding:58px 18px}}.grid,.gallery,.stats{{grid-template-columns:1fr}}.section{{padding:52px 16px}}.cta{{padding:30px 18px}}}}
+    :root {{
+      --dark:#17110b;
+      --brown:#5b341f;
+      --gold:#d8a33d;
+      --cream:#fff8ee;
+      --soft:#f6f0e7;
+      --text:#222;
+    }}
+    *{{box-sizing:border-box}}
+    html{{scroll-behavior:smooth}}
+    body{{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--cream);color:var(--text);line-height:1.65}}
+    a{{color:inherit;text-decoration:none}}
+    img{{display:block;width:100%}}
+    .top{{position:sticky;top:0;z-index:99;background:rgba(23,17,11,.95);box-shadow:0 8px 28px rgba(0,0,0,.25)}}
+    .nav{{max-width:1200px;margin:auto;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;gap:20px}}
+    .brand{{color:#fff;font-weight:900;letter-spacing:.8px;font-size:20px;text-transform:uppercase}}
+    .menu{{display:flex;gap:20px;color:#fff;font-size:14px}}
+    .menu a{{opacity:.9}} .menu a:hover{{color:var(--gold)}}
+    .hero{{min-height:88vh;background:linear-gradient(90deg,rgba(15,10,5,.82),rgba(15,10,5,.35),rgba(15,10,5,.15)),url('{hero_img}') center/cover no-repeat;display:flex;align-items:center}}
+    .hero-inner{{max-width:1200px;margin:auto;padding:90px 20px;color:#fff;width:100%}}
+    .badge{{display:inline-block;background:rgba(216,163,61,.95);color:#1b1209;border-radius:999px;padding:8px 14px;font-weight:900;margin-bottom:18px}}
+    h1{{font-size:clamp(42px,7vw,86px);line-height:1.03;margin:0 0 20px;text-transform:uppercase;letter-spacing:1px}}
+    .hero p{{max-width:770px;font-size:clamp(17px,2vw,23px);color:#f5eadb;margin:0 0 28px}}
+    .btns{{display:flex;flex-wrap:wrap;gap:12px}}
+    .btn{{display:inline-flex;align-items:center;gap:8px;padding:14px 20px;border-radius:13px;font-weight:900;box-shadow:0 10px 25px rgba(0,0,0,.24)}}
+    .gold{{background:var(--gold);color:#17110b}} .white{{background:#fff;color:#17110b}} .outline{{border:1px solid rgba(255,255,255,.55);color:#fff}}
+    .section{{max-width:1200px;margin:auto;padding:76px 20px}}
+    .title{{text-align:center;margin-bottom:38px}}
+    .title small{{display:block;color:var(--gold);font-weight:900;letter-spacing:1.5px;text-transform:uppercase}}
+    h2{{font-size:clamp(28px,4vw,48px);line-height:1.14;margin:8px 0 12px;color:#1b1510}}
+    .title p{{max-width:760px;margin:auto;color:#6a5d50}}
+    .about{{display:grid;grid-template-columns:.95fr 1.05fr;gap:32px;align-items:center}}
+    .about-img{{border-radius:28px;overflow:hidden;box-shadow:0 26px 60px rgba(0,0,0,.18);background:#ddd}}
+    .about-img img{{height:560px;object-fit:cover}}
+    .panel{{background:#fff;border-radius:28px;padding:36px;box-shadow:0 16px 42px rgba(0,0,0,.08);border:1px solid rgba(216,163,61,.18)}}
+    .panel p{{color:#5e554d}}
+    .stats{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:24px}}
+    .stat{{background:var(--dark);color:#fff;border-radius:18px;padding:18px 12px;text-align:center}}
+    .stat b{{display:block;color:var(--gold);font-size:23px;line-height:1.1;margin-bottom:4px}}
+    .services{{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}}
+    .service{{background:#fff;border-radius:22px;padding:25px;box-shadow:0 12px 32px rgba(0,0,0,.08);border:1px solid rgba(216,163,61,.18)}}
+    .service .ico{{width:48px;height:48px;border-radius:15px;background:linear-gradient(135deg,var(--gold),#fff2c7);display:flex;align-items:center;justify-content:center;font-size:24px;margin-bottom:16px}}
+    .service h3{{margin:0 0 10px;font-size:20px;color:#1b1510}} .service p{{margin:0;color:#665c54;font-size:15px}}
+    .split{{display:grid;grid-template-columns:1fr 1fr;gap:22px}}
+    .feature{{background:var(--dark);color:#fff;border-radius:28px;padding:34px;min-height:250px;display:flex;flex-direction:column;justify-content:end;position:relative;overflow:hidden}}
+    .feature:before{{content:"";position:absolute;inset:0;background:radial-gradient(circle at top right,rgba(216,163,61,.35),transparent 40%)}}
+    .feature h3,.feature p{{position:relative}} .feature h3{{font-size:26px;margin:0 0 10px;color:#fff}} .feature p{{color:#eadfce;margin:0}}
+    .gallery{{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}}
+    .photo{{position:relative;border-radius:24px;overflow:hidden;background:#ddd;box-shadow:0 16px 38px rgba(0,0,0,.14);min-height:300px}}
+    .photo img{{height:100%;aspect-ratio:4/3;object-fit:cover;transition:transform .4s ease}}
+    .photo:hover img{{transform:scale(1.06)}}
+    .cap{{position:absolute;left:14px;right:14px;bottom:14px;background:rgba(20,14,8,.72);color:#fff;border-radius:999px;padding:9px 14px;font-size:13px;font-weight:800;backdrop-filter:blur(4px)}}
+    .process{{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;counter-reset:step}}
+    .step{{background:#fff;border-radius:22px;padding:24px;border:1px solid rgba(216,163,61,.18);box-shadow:0 12px 30px rgba(0,0,0,.07)}}
+    .step:before{{counter-increment:step;content:"0" counter(step);display:inline-flex;width:48px;height:48px;border-radius:50%;align-items:center;justify-content:center;background:var(--gold);font-weight:900;color:#17110b;margin-bottom:12px}}
+    .step h3{{margin:0 0 8px}} .step p{{margin:0;color:#665c54;font-size:15px}}
+    .products{{display:grid;grid-template-columns:repeat(5,1fr);gap:16px}}
+    .product{{background:#fff;border-radius:22px;padding:10px;box-shadow:0 12px 30px rgba(0,0,0,.08);border:1px solid rgba(216,163,61,.18)}}
+    .product img{{aspect-ratio:1/1;object-fit:cover;border-radius:16px;background:#eee}}
+    .product b{{display:block;padding:12px 8px 8px;text-align:center;color:#332419}}
+    .cta{{background:linear-gradient(135deg,#1b1209,#5b341f);color:#fff;border-radius:32px;padding:48px 28px;text-align:center;box-shadow:0 26px 70px rgba(0,0,0,.24);position:relative;overflow:hidden}}
+    .cta:before{{content:"";position:absolute;inset:-20%;background:radial-gradient(circle at top right,rgba(216,163,61,.45),transparent 35%)}}
+    .cta *{{position:relative}} .cta h2{{color:#fff}} .cta p{{color:#eadfce;max-width:760px;margin:0 auto 22px}}
+    footer{{background:#111;color:#d8d0c6;text-align:center;padding:30px 16px;margin-top:40px}}
+    .float{{position:fixed;right:18px;bottom:18px;z-index:100;display:flex;flex-direction:column;gap:10px}}
+    .float a{{background:var(--gold);color:#17110b;border-radius:999px;padding:13px 17px;font-weight:900;box-shadow:0 8px 24px rgba(0,0,0,.25)}}
+    .note{{font-size:13px;color:#756a61;text-align:center;margin-top:18px}}
+    @media(max-width:960px){{
+      .menu{{display:none}} .about,.split{{grid-template-columns:1fr}} .services{{grid-template-columns:1fr 1fr}} .gallery{{grid-template-columns:1fr 1fr}} .process{{grid-template-columns:1fr 1fr}} .products{{grid-template-columns:1fr 1fr 1fr}} .about-img img{{height:auto}}
+    }}
+    @media(max-width:560px){{
+      .brand{{font-size:16px}} .hero{{min-height:78vh}} .hero-inner{{padding:60px 16px}} .section{{padding:54px 16px}} .services,.gallery,.process,.products,.stats{{grid-template-columns:1fr}} .panel{{padding:25px}} .photo{{min-height:250px}} .float{{right:12px;bottom:12px}} .float a{{padding:11px 14px}}
+    }}
   </style>
 </head>
 <body>
-  <div class="top"><nav class="nav"><a class="brand" href="#">THẠCH CAO VŨ DƯƠNG</a><div class="links"><a href="#gioi-thieu">Giới thiệu</a><a href="#dich-vu">Dịch vụ</a><a href="#cong-trinh">Công trình</a><a href="#lien-he">Liên hệ</a></div></nav></div>
+  <div class="top">
+    <nav class="nav">
+      <a class="brand" href="#">Thạch Cao Vũ Dương</a>
+      <div class="menu">
+        <a href="#gioi-thieu">Giới thiệu</a>
+        <a href="#dich-vu">Dịch vụ</a>
+        <a href="#cong-trinh">Công trình</a>
+        <a href="#mau">Mẫu hoa thị</a>
+        <a href="#lien-he">Liên hệ</a>
+      </div>
+    </nav>
+  </div>
 
   <header class="hero">
     <div class="hero-inner">
       <span class="badge">Thi công khu vực Miền Nam</span>
-      <h1>Thạch Cao<br>Vũ Dương</h1>
-      <p>Chuyên thi công trần thạch cao, vách ngăn, phào chỉ, lam sóng và trang trí nội thất. Làm đẹp, gọn, đúng tiến độ, báo giá rõ ràng.</p>
+      <h1>Thi công phào chỉ<br>trần thạch cao</h1>
+      <p>Đội thi công Thạch Cao Vũ Dương nhận làm trần thạch cao, phào chỉ, pano tường, lam sóng, hoa thị trần và trang trí nội thất tân cổ điển.</p>
       <div class="btns">
         <a class="btn gold" href="tel:0336789496">📞 Gọi 0336 789 496</a>
-        <a class="btn dark" href="https://zalo.me/0336789496">💬 Nhắn Zalo</a>
+        <a class="btn white" href="tel:0859101234">📞 0859 101 234</a>
+        <a class="btn outline" href="https://zalo.me/0336789496">💬 Nhắn Zalo</a>
       </div>
     </div>
   </header>
 
   <section id="gioi-thieu" class="section about">
-    <div class="about-img"><img src="{embedded[1][0] if len(embedded)>1 else hero_src}" alt="Công trình Thạch Cao Vũ Dương"></div>
-    <div class="about-text">
-      <div class="title" style="text-align:left;margin-bottom:10px"><span>Giới thiệu</span><h2>Đội thi công thạch cao & trang trí nội thất</h2></div>
-      <p>Thạch Cao Vũ Dương nhận thi công nhà phố, biệt thự, căn hộ, cửa hàng, văn phòng tại khu vực Miền Nam. Đội thợ làm việc trách nhiệm, tư vấn rõ ràng, thi công sạch sẽ và hoàn thiện theo yêu cầu của khách hàng.</p>
-      <div class="stats"><div class="stat"><b>2</b>Số điện thoại</div><div class="stat"><b>Miền Nam</b>Khu vực</div><div class="stat"><b>Đẹp</b>Gọn & kỹ</div></div>
+    <div class="about-img"><img src="{about_img}" alt="Đội thi công Thạch Cao Vũ Dương"></div>
+    <div class="panel">
+      <div class="title" style="text-align:left;margin-bottom:10px">
+        <small>Giới thiệu</small>
+        <h2>Đội thi công thật, công trình thật</h2>
+      </div>
+      <p><strong>Thạch Cao Vũ Dương</strong> chuyên nhận thi công nhà phố, biệt thự, căn hộ, văn phòng và cửa hàng tại khu vực Miền Nam. Chúng tôi tập trung vào thi công gọn gàng, đúng kỹ thuật, tư vấn rõ ràng và hoàn thiện đẹp theo yêu cầu của khách hàng.</p>
+      <div class="stats">
+        <div class="stat"><b>Miền Nam</b>Khu vực</div>
+        <div class="stat"><b>Trọn gói</b>Tư vấn - thi công</div>
+        <div class="stat"><b>Rõ ràng</b>Báo giá trước</div>
+      </div>
     </div>
   </section>
 
   <section id="dich-vu" class="section">
-    <div class="title"><span>Dịch vụ</span><h2>Nhận thi công trọn gói hoặc từng hạng mục</h2><p>Tư vấn phương án phù hợp với công trình, vật tư và ngân sách của khách hàng.</p></div>
-    <div class="grid">
-      <div class="card"><h3>Trần thạch cao</h3><p>Trần phẳng, trần giật cấp, trần hắt đèn, trần chống ẩm cho nhà ở và công trình.</p></div>
-      <div class="card"><h3>Vách & khung trang trí</h3><p>Vách thạch cao, khung chỉ tường, tạo điểm nhấn phòng khách, phòng ngủ.</p></div>
-      <div class="card"><h3>Phào chỉ - lam sóng</h3><p>Thi công phào chỉ, lam sóng, nẹp trang trí hiện đại và tân cổ điển.</p></div>
-      <div class="card"><h3>Sửa chữa cải tạo</h3><p>Cải tạo trần cũ, xử lý hư hỏng, hoàn thiện lại không gian sạch đẹp.</p></div>
+    <div class="title">
+      <small>Dịch vụ</small>
+      <h2>Nhận thi công nhiều hạng mục</h2>
+      <p>Từ trần thạch cao cơ bản đến phào chỉ tân cổ điển, hoa thị trần, pano tường và lam sóng trang trí.</p>
+    </div>
+    <div class="services">
+      <article class="service"><div class="ico">▣</div><h3>Trần thạch cao</h3><p>Trần phẳng, trần giật cấp, trần hắt đèn, trần chống ẩm cho nhà ở và công trình.</p></article>
+      <article class="service"><div class="ico">✦</div><h3>Phào chỉ tân cổ điển</h3><p>Thi công khung chỉ tường, pano phòng khách, phòng ngủ, cầu thang và sảnh.</p></article>
+      <article class="service"><div class="ico">◎</div><h3>Hoa thị trần</h3><p>Tư vấn mẫu hoa thị, bố trí đèn chùm, hoàn thiện đồng bộ với thiết kế trần.</p></article>
+      <article class="service"><div class="ico">▥</div><h3>Lam sóng trang trí</h3><p>Lam sóng tường, vách trang trí hiện đại, tạo điểm nhấn cho phòng khách và showroom.</p></article>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="split">
+      <div class="feature">
+        <h3>Phong cách tân cổ điển sang trọng</h3>
+        <p>Đường chỉ gọn, tỷ lệ cân đối, phù hợp nhà phố, biệt thự, phòng khách, phòng ngủ và cầu thang thông tầng.</p>
+      </div>
+      <div class="feature">
+        <h3>Thi công thực tế, không chỉ là ảnh mẫu</h3>
+        <p>Website ưu tiên hình ảnh công trình thật để khách hàng dễ đánh giá tay nghề và độ hoàn thiện của đội thợ.</p>
+      </div>
     </div>
   </section>
 
   <section id="cong-trinh" class="section">
-    <div class="title"><span>Hình ảnh thực tế</span><h2>Công trình đã thi công</h2><p>Một số hình ảnh thi công và hoàn thiện thực tế của đội Vũ Dương.</p></div>
+    <div class="title">
+      <small>Công trình thực tế</small>
+      <h2>Hình ảnh thi công & hoàn thiện</h2>
+      <p>Một số hình ảnh công trình đã thi công và các hạng mục đang hoàn thiện.</p>
+    </div>
     <div class="gallery">
-      {cards}
+      {card_html(work_cards)}
+      {card_html(luxury_cards)}
+    </div>
+  </section>
+
+  <section id="mau" class="section">
+    <div class="title">
+      <small>Catalog chọn lọc</small>
+      <h2>Mẫu hoa thị trần tiêu biểu</h2>
+      <p>Chỉ đưa các mẫu dễ dùng, nhìn sang và phù hợp với trần thạch cao tân cổ điển.</p>
+    </div>
+    <div class="products">
+      {card_html(sample_cards, cls="product").replace('<div class="cap">','<b>').replace('</div>','</b>')}
+    </div>
+    <p class="note">Có thể tư vấn thêm mẫu theo kích thước phòng, vị trí đèn chùm và phong cách nội thất.</p>
+  </section>
+
+  <section class="section">
+    <div class="title">
+      <small>Quy trình</small>
+      <h2>Làm việc rõ ràng, dễ hiểu</h2>
+    </div>
+    <div class="process">
+      <div class="step"><h3>Khảo sát</h3><p>Trao đổi nhu cầu, xem mặt bằng và tư vấn phương án phù hợp.</p></div>
+      <div class="step"><h3>Báo giá</h3><p>Báo giá vật tư, nhân công và thời gian thi công trước khi làm.</p></div>
+      <div class="step"><h3>Thi công</h3><p>Đội thợ triển khai theo phương án đã thống nhất, làm gọn và đúng kỹ thuật.</p></div>
+      <div class="step"><h3>Hoàn thiện</h3><p>Kiểm tra đường chỉ, mối nối, bề mặt và bàn giao công trình.</p></div>
     </div>
   </section>
 
   <section id="lien-he" class="section">
     <div class="cta">
-      <h2>Liên hệ báo giá miễn phí</h2>
-      <p>Nhận khảo sát, tư vấn và báo giá thi công thạch cao - phào chỉ - trang trí nội thất khu vực Miền Nam.</p>
+      <h2>Liên hệ Thạch Cao Vũ Dương</h2>
+      <p>Nhận tư vấn, khảo sát và báo giá thi công phào chỉ, trần thạch cao, hoa thị trần, lam sóng và trang trí nội thất khu vực Miền Nam.</p>
       <div class="btns" style="justify-content:center">
         <a class="btn gold" href="tel:0336789496">📞 0336 789 496</a>
-        <a class="btn dark" href="tel:0859101234">📞 0859 101 234</a>
+        <a class="btn white" href="tel:0859101234">📞 0859 101 234</a>
         <a class="btn gold" href="https://zalo.me/0336789496">💬 Zalo</a>
       </div>
     </div>
   </section>
 
-  <div class="float"><a href="tel:0336789496">☎ Gọi</a><a href="https://zalo.me/0336789496">Zalo</a></div>
-  <footer>© 2026 Thạch Cao Vũ Dương. Thi công thạch cao - phào chỉ - lam sóng khu vực Miền Nam.</footer>
+  <div class="float">
+    <a href="tel:0336789496">☎ Gọi</a>
+    <a href="https://zalo.me/0336789496">Zalo</a>
+  </div>
+
+  <footer>
+    © 2026 Thạch Cao Vũ Dương - Thi công phào chỉ, trần thạch cao, hoa thị trần, lam sóng khu vực Miền Nam.
+  </footer>
 </body>
 </html>
 """
 
-out = data_dir / "index-hoan-thien-thach-cao-vu-duong.html"
-out.write_text(html_content, encoding="utf-8")
+out = data / "index.html"
+out.write_text(html, encoding="utf-8")
 
-zip_path = data_dir / "website-hoan-thien-chi-can-index.zip"
+zip_path = data / "thach-cao-vu-duong-web-hoan-thien.zip"
 with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-    z.write(out, arcname="index.html")
+    z.write(out, "index.html")
 
-(out.stat().st_size, zip_path.stat().st_size)
+print("Đã tạo file:")
+print(out, f"{out.stat().st_size/1024/1024:.2f} MB")
+print(zip_path, f"{zip_path.stat().st_size/1024/1024:.2f} MB")

@@ -1,4 +1,33 @@
-<!DOCTYPE html>
+from pathlib import Path
+from PIL import Image
+import base64, io, html, os, zipfile
+
+data_dir = Path("/mnt/data")
+image_files = sorted(data_dir.glob("176676534*.jpg"))
+
+# Compress images and embed as base64 so user only needs one index.html
+embedded = []
+for i, p in enumerate(image_files, start=1):
+    img = Image.open(p).convert("RGB")
+    # resize max side for web
+    max_side = 1300
+    w, h = img.size
+    scale = min(1, max_side / max(w, h))
+    if scale < 1:
+        img = img.resize((int(w*scale), int(h*scale)), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=78, optimize=True)
+    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    embedded.append((f"data:image/jpeg;base64,{b64}", f"Công trình thạch cao Vũ Dương {i}"))
+
+cards = "\n".join(
+    f'<article class="photo-card"><img src="{src}" alt="{alt}" loading="lazy"><span>{alt}</span></article>'
+    for src, alt in embedded
+)
+
+hero_src = embedded[-1][0] if embedded else ""
+
+html_content = f"""<!DOCTYPE html>
 <html lang="vi">
 <head>
   <meta charset="UTF-8" />
@@ -6,50 +35,92 @@
   <title>Thạch Cao Vũ Dương | Thi công thạch cao Miền Nam</title>
   <meta name="description" content="Thạch Cao Vũ Dương chuyên thi công trần thạch cao, vách ngăn, phào chỉ, lam sóng, trang trí nội thất khu vực Miền Nam." />
   <style>
-    *{box-sizing:border-box} html{scroll-behavior:smooth} body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#222;background:#faf8f4;line-height:1.6} a{text-decoration:none;color:inherit} img{max-width:100%;display:block} .top{position:sticky;top:0;z-index:10;background:rgba(18,18,18,.92);backdrop-filter:blur(10px);color:#fff} .nav{max-width:1180px;margin:auto;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px}.brand{font-weight:800;letter-spacing:.5px}.nav a{font-size:14px;margin-left:16px;opacity:.9}.hero{min-height:88vh;background:linear-gradient(90deg,rgba(0,0,0,.72),rgba(0,0,0,.3)),url('images/cong-trinh-9.jpg') center/cover no-repeat;color:#fff;display:flex;align-items:center}.hero-inner{max-width:1180px;margin:auto;padding:70px 20px}.badge{display:inline-block;border:1px solid rgba(255,255,255,.45);padding:7px 13px;border-radius:999px;margin-bottom:16px;background:rgba(255,255,255,.1)}h1{font-size:clamp(38px,7vw,78px);line-height:1.03;margin:0 0 18px;text-transform:uppercase}.hero p{font-size:clamp(17px,2vw,24px);max-width:720px;margin:0 0 26px}.btns{display:flex;flex-wrap:wrap;gap:12px}.btn{display:inline-flex;align-items:center;justify-content:center;padding:13px 20px;border-radius:10px;font-weight:800}.btn.gold{background:#c89b3c;color:#111}.btn.dark{background:#fff;color:#111}.section{max-width:1180px;margin:auto;padding:70px 20px}.title{text-align:center;margin-bottom:38px}.title h2{font-size:clamp(28px,4vw,44px);margin:0;color:#171717}.title p{margin:8px auto 0;max-width:650px;color:#666}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.card{background:#fff;border-radius:18px;padding:26px;box-shadow:0 12px 35px rgba(0,0,0,.08);border:1px solid #eee}.card h3{margin-top:0;font-size:21px}.about{display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:center}.about img{border-radius:22px;box-shadow:0 18px 45px rgba(0,0,0,.18)}.list{padding:0;list-style:none}.list li{padding:10px 0;border-bottom:1px solid #eee}.gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.gallery a{height:285px;border-radius:16px;overflow:hidden;background:#ddd;box-shadow:0 10px 25px rgba(0,0,0,.12)}.gallery img{width:100%;height:100%;object-fit:cover;transition:.35s}.gallery a:hover img{transform:scale(1.06)}.cta{background:#171717;color:#fff;text-align:center}.cta .section{padding:60px 20px}.cta h2{font-size:clamp(30px,4vw,48px);margin:0 0 12px}.phones{font-size:28px;font-weight:900;color:#d6ad54;margin:14px 0 22px}.floating{position:fixed;right:16px;bottom:18px;display:flex;flex-direction:column;gap:10px;z-index:30}.floating a{background:#c89b3c;color:#111;padding:12px 16px;border-radius:999px;font-weight:900;box-shadow:0 8px 20px rgba(0,0,0,.25)}footer{background:#080808;color:#aaa;text-align:center;padding:22px}.note{font-size:13px;color:#888;text-align:center;margin-top:16px}@media(max-width:850px){.nav .links{display:none}.hero{min-height:78vh}.grid,.about,.gallery{grid-template-columns:1fr}.gallery a{height:260px}.section{padding:48px 16px}.phones{font-size:22px}}
+    *{{box-sizing:border-box}} html{{scroll-behavior:smooth}} body{{margin:0;font-family:Arial,Helvetica,sans-serif;color:#222;background:#faf8f3;line-height:1.6}}
+    a{{text-decoration:none;color:inherit}} img{{max-width:100%;display:block}}
+    .top{{position:sticky;top:0;z-index:10;background:rgba(22,20,18,.94);backdrop-filter:blur(8px);box-shadow:0 4px 20px rgba(0,0,0,.18)}}
+    .nav{{max-width:1180px;margin:auto;padding:15px 20px;display:flex;align-items:center;justify-content:space-between;gap:18px}}
+    .brand{{font-weight:900;color:#fff;letter-spacing:1px;font-size:20px}} .links{{display:flex;gap:18px;color:#fff;font-size:14px}} .links a{{opacity:.9}} .links a:hover{{color:#d9a441}}
+    .hero{{min-height:82vh;background:linear-gradient(90deg,rgba(0,0,0,.76),rgba(0,0,0,.35)),url('{hero_src}') center/cover no-repeat;display:flex;align-items:center}}
+    .hero-inner{{max-width:1180px;margin:auto;padding:80px 20px;color:#fff;width:100%}} .badge{{display:inline-block;background:#d9a441;color:#1d1710;border-radius:999px;padding:8px 14px;font-weight:700;margin-bottom:18px}}
+    h1{{font-size:clamp(38px,6vw,76px);line-height:1.05;margin:0 0 18px;text-transform:uppercase;letter-spacing:1px}} .hero p{{font-size:clamp(17px,2vw,23px);max-width:760px;color:#f1eadf;margin-bottom:28px}}
+    .btns{{display:flex;flex-wrap:wrap;gap:12px}} .btn{{display:inline-flex;align-items:center;gap:8px;border-radius:12px;padding:14px 20px;font-weight:800;box-shadow:0 8px 22px rgba(0,0,0,.18)}}
+    .gold{{background:#d9a441;color:#17120d}} .dark{{background:#fff;color:#17120d}} .section{{max-width:1180px;margin:auto;padding:72px 20px}}
+    .title{{text-align:center;margin-bottom:36px}} .title span{{color:#d9a441;font-weight:800;text-transform:uppercase;letter-spacing:1px}} h2{{font-size:clamp(28px,4vw,44px);margin:8px 0 12px;line-height:1.15}} .title p{{max-width:720px;margin:auto;color:#666}}
+    .about{{display:grid;grid-template-columns:1fr 1.1fr;gap:30px;align-items:center}} .about-img{{border-radius:24px;overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,.18)}} .about-text{{background:#fff;padding:34px;border-radius:24px;box-shadow:0 12px 35px rgba(0,0,0,.07)}}
+    .stats{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:24px}} .stat{{background:#17120d;color:#fff;border-radius:16px;padding:18px;text-align:center}} .stat b{{display:block;font-size:25px;color:#d9a441}}
+    .grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}} .card{{background:#fff;border-radius:20px;padding:24px;box-shadow:0 10px 30px rgba(0,0,0,.07);border:1px solid #eee}} .card h3{{margin:0 0 8px;font-size:19px}} .card p{{margin:0;color:#666}}
+    .gallery{{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}} .photo-card{{position:relative;overflow:hidden;border-radius:22px;background:#ddd;box-shadow:0 14px 35px rgba(0,0,0,.12);min-height:260px}} .photo-card img{{width:100%;height:100%;object-fit:cover;aspect-ratio:4/3;transition:.35s}} .photo-card:hover img{{transform:scale(1.05)}} .photo-card span{{position:absolute;left:14px;bottom:14px;background:rgba(0,0,0,.62);color:#fff;padding:8px 12px;border-radius:999px;font-size:13px}}
+    .cta{{background:#17120d;color:#fff;border-radius:28px;padding:44px;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.22)}} .cta h2{{color:#fff}} .cta p{{color:#e8dfd0}}
+    footer{{background:#111;color:#ccc;text-align:center;padding:28px 20px;margin-top:40px}}
+    .float{{position:fixed;right:18px;bottom:18px;z-index:20;display:flex;flex-direction:column;gap:10px}} .float a{{background:#d9a441;color:#17120d;font-weight:900;border-radius:999px;padding:13px 16px;box-shadow:0 8px 20px rgba(0,0,0,.24)}}
+    @media(max-width:900px){{.links{{display:none}}.hero{{min-height:72vh}}.about{{grid-template-columns:1fr}}.grid{{grid-template-columns:1fr 1fr}}.gallery{{grid-template-columns:1fr 1fr}}}}
+    @media(max-width:560px){{.brand{{font-size:16px}}.hero-inner{{padding:58px 18px}}.grid,.gallery,.stats{{grid-template-columns:1fr}}.section{{padding:52px 16px}}.cta{{padding:30px 18px}}}}
   </style>
 </head>
 <body>
-  <div class="top"><div class="nav"><div class="brand">THẠCH CAO VŨ DƯƠNG</div><div class="links"><a href="#gioi-thieu">Giới thiệu</a><a href="#dich-vu">Dịch vụ</a><a href="#cong-trinh">Công trình</a><a href="#lien-he">Liên hệ</a></div></div></div>
+  <div class="top"><nav class="nav"><a class="brand" href="#">THẠCH CAO VŨ DƯƠNG</a><div class="links"><a href="#gioi-thieu">Giới thiệu</a><a href="#dich-vu">Dịch vụ</a><a href="#cong-trinh">Công trình</a><a href="#lien-he">Liên hệ</a></div></nav></div>
 
   <header class="hero">
     <div class="hero-inner">
       <span class="badge">Thi công khu vực Miền Nam</span>
       <h1>Thạch Cao<br>Vũ Dương</h1>
-      <p>Chuyên trần thạch cao, vách ngăn, phào chỉ, lam sóng và trang trí nội thất. Thi công đẹp, gọn, đúng tiến độ, báo giá rõ ràng.</p>
-      <div class="btns"><a class="btn gold" href="tel:0336789496">Gọi 0336 789 496</a><a class="btn dark" href="https://zalo.me/0336789496">Nhắn Zalo</a></div>
+      <p>Chuyên thi công trần thạch cao, vách ngăn, phào chỉ, lam sóng và trang trí nội thất. Làm đẹp, gọn, đúng tiến độ, báo giá rõ ràng.</p>
+      <div class="btns">
+        <a class="btn gold" href="tel:0336789496">📞 Gọi 0336 789 496</a>
+        <a class="btn dark" href="https://zalo.me/0336789496">💬 Nhắn Zalo</a>
+      </div>
     </div>
   </header>
 
   <section id="gioi-thieu" class="section about">
-    <div><img src="images/cong-trinh-8.jpg" alt="Công trình thạch cao Vũ Dương"></div>
-    <div><div class="title" style="text-align:left;margin-bottom:18px"><h2>Thi công thạch cao & trang trí nội thất</h2></div><p>Thạch Cao Vũ Dương nhận thi công nhà phố, biệt thự, căn hộ, cửa hàng, văn phòng tại khu vực Miền Nam. Đội thợ làm trực tiếp, tư vấn tận tâm, thi công sạch sẽ và có trách nhiệm.</p><ul class="list"><li>✓ Khảo sát và tư vấn phương án phù hợp</li><li>✓ Báo giá rõ ràng trước khi thi công</li><li>✓ Đội thợ kinh nghiệm, hoàn thiện kỹ</li><li>✓ Nhận công trình lớn nhỏ tại Miền Nam</li></ul></div>
+    <div class="about-img"><img src="{embedded[1][0] if len(embedded)>1 else hero_src}" alt="Công trình Thạch Cao Vũ Dương"></div>
+    <div class="about-text">
+      <div class="title" style="text-align:left;margin-bottom:10px"><span>Giới thiệu</span><h2>Đội thi công thạch cao & trang trí nội thất</h2></div>
+      <p>Thạch Cao Vũ Dương nhận thi công nhà phố, biệt thự, căn hộ, cửa hàng, văn phòng tại khu vực Miền Nam. Đội thợ làm việc trách nhiệm, tư vấn rõ ràng, thi công sạch sẽ và hoàn thiện theo yêu cầu của khách hàng.</p>
+      <div class="stats"><div class="stat"><b>2</b>Số điện thoại</div><div class="stat"><b>Miền Nam</b>Khu vực</div><div class="stat"><b>Đẹp</b>Gọn & kỹ</div></div>
+    </div>
   </section>
 
   <section id="dich-vu" class="section">
-    <div class="title"><h2>Dịch vụ thi công</h2><p>Nhận thi công trọn gói hoặc từng hạng mục theo nhu cầu của khách hàng.</p></div>
-    <div class="grid"><div class="card"><h3>Trần thạch cao</h3><p>Trần phẳng, trần giật cấp, trần hắt đèn, trần chống ẩm cho nhà ở và công trình.</p></div><div class="card"><h3>Vách & khung trang trí</h3><p>Vách thạch cao, khung chỉ tường, tạo điểm nhấn phòng khách, phòng ngủ, cầu thang.</p></div><div class="card"><h3>Phào chỉ, lam sóng</h3><p>Thi công phào chỉ PU/PS, lam sóng, nẹp trang trí, hoàn thiện theo phong cách hiện đại hoặc tân cổ điển.</p></div></div>
+    <div class="title"><span>Dịch vụ</span><h2>Nhận thi công trọn gói hoặc từng hạng mục</h2><p>Tư vấn phương án phù hợp với công trình, vật tư và ngân sách của khách hàng.</p></div>
+    <div class="grid">
+      <div class="card"><h3>Trần thạch cao</h3><p>Trần phẳng, trần giật cấp, trần hắt đèn, trần chống ẩm cho nhà ở và công trình.</p></div>
+      <div class="card"><h3>Vách & khung trang trí</h3><p>Vách thạch cao, khung chỉ tường, tạo điểm nhấn phòng khách, phòng ngủ.</p></div>
+      <div class="card"><h3>Phào chỉ - lam sóng</h3><p>Thi công phào chỉ, lam sóng, nẹp trang trí hiện đại và tân cổ điển.</p></div>
+      <div class="card"><h3>Sửa chữa cải tạo</h3><p>Cải tạo trần cũ, xử lý hư hỏng, hoàn thiện lại không gian sạch đẹp.</p></div>
+    </div>
   </section>
 
   <section id="cong-trinh" class="section">
-    <div class="title"><h2>Hình ảnh công trình</h2><p>Một số hình ảnh thi công và hoàn thiện thực tế của đội Vũ Dương.</p></div>
+    <div class="title"><span>Hình ảnh thực tế</span><h2>Công trình đã thi công</h2><p>Một số hình ảnh thi công và hoàn thiện thực tế của đội Vũ Dương.</p></div>
     <div class="gallery">
-      <a href="images/cong-trinh-1.jpg"><img src="images/cong-trinh-1.jpg" alt="Lam sóng trang trí"></a>
-      <a href="images/cong-trinh-2.jpg"><img src="images/cong-trinh-2.jpg" alt="Công trình hoàn thiện"></a>
-      <a href="images/cong-trinh-3.jpg"><img src="images/cong-trinh-3.jpg" alt="Thi công phào chỉ"></a>
-      <a href="images/cong-trinh-4.jpg"><img src="images/cong-trinh-4.jpg" alt="Thi công tường trang trí"></a>
-      <a href="images/cong-trinh-5.jpg"><img src="images/cong-trinh-5.jpg" alt="Phòng thi công"></a>
-      <a href="images/cong-trinh-6.jpg"><img src="images/cong-trinh-6.jpg" alt="Cầu thang phào chỉ"></a>
-      <a href="images/cong-trinh-7.jpg"><img src="images/cong-trinh-7.jpg" alt="Khung chỉ tường"></a>
-      <a href="images/cong-trinh-8.jpg"><img src="images/cong-trinh-8.jpg" alt="Trần và phào chỉ"></a>
-      <a href="images/cong-trinh-9.jpg"><img src="images/cong-trinh-9.jpg" alt="Nội thất hoàn thiện"></a>
+      {cards}
     </div>
-    <div class="note">Bấm vào ảnh để xem ảnh lớn.</div>
   </section>
 
-  <section id="lien-he" class="cta"><div class="section"><h2>Cần báo giá thi công?</h2><p>Liên hệ Thạch Cao Vũ Dương để được tư vấn nhanh.</p><div class="phones">0336 789 496 · 0859 101 234</div><div class="btns" style="justify-content:center"><a class="btn gold" href="tel:0336789496">Gọi ngay</a><a class="btn dark" href="https://zalo.me/0336789496">Nhắn Zalo</a></div></div></section>
+  <section id="lien-he" class="section">
+    <div class="cta">
+      <h2>Liên hệ báo giá miễn phí</h2>
+      <p>Nhận khảo sát, tư vấn và báo giá thi công thạch cao - phào chỉ - trang trí nội thất khu vực Miền Nam.</p>
+      <div class="btns" style="justify-content:center">
+        <a class="btn gold" href="tel:0336789496">📞 0336 789 496</a>
+        <a class="btn dark" href="tel:0859101234">📞 0859 101 234</a>
+        <a class="btn gold" href="https://zalo.me/0336789496">💬 Zalo</a>
+      </div>
+    </div>
+  </section>
 
-  <div class="floating"><a href="tel:0336789496">☎ Gọi</a><a href="https://zalo.me/0336789496">Zalo</a></div>
-  <footer>© 2026 Thạch Cao Vũ Dương · Thi công khu vực Miền Nam</footer>
+  <div class="float"><a href="tel:0336789496">☎ Gọi</a><a href="https://zalo.me/0336789496">Zalo</a></div>
+  <footer>© 2026 Thạch Cao Vũ Dương. Thi công thạch cao - phào chỉ - lam sóng khu vực Miền Nam.</footer>
 </body>
 </html>
+"""
+
+out = data_dir / "index-hoan-thien-thach-cao-vu-duong.html"
+out.write_text(html_content, encoding="utf-8")
+
+zip_path = data_dir / "website-hoan-thien-chi-can-index.zip"
+with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+    z.write(out, arcname="index.html")
+
+(out.stat().st_size, zip_path.stat().st_size)
